@@ -1,9 +1,33 @@
 # pi-mis-configuraciones
 
-Paquete de **pi** con el comando `/qa` para correr QA de **KOBRA Learning v1** con
-selector interactivo de casos.
+Paquete de **pi** con comandos personales de tobarrientos2.
 
-## Qué hace
+## Comandos
+
+### Agenda personal (`/a`, `/h-*`)
+
+Agenda de tareas por **día** (sin hora) con **agrupación IA**. Persiste en
+`~/.pi/agent/agenda.json` (sobrevive reinicios).
+
+- `/a <texto>` — agrega una tarea para **mañana** (o `hoy`/`mañana`/`pasado`/
+  `YYYY-MM-DD` al inicio). El agente (LLM) decide el `grupo` leyendo la nota de
+  contexto de tu vida (qué enseñás con `/h-contexto`).
+  - Ej: `/a mañana recibir correo de Patricia Stocker` → grupo `Trabajo/Patricia Stocker`.
+- `/h-hoy` — lista las tareas de hoy, agrupadas (TUI).
+- `/h-mañana` — las de mañana.
+- `/h-semana` — las de los próximos 7 días.
+- `/h-lista` — todas las pendientes, agrupadas.
+- `/h-contexto` — ver la nota de contexto de tu vida.
+- `/h-contexto <texto>` — reemplazar la nota (ahí metés: empresa familiar,
+  proyectos, rutinas, cuentas clave).
+- `/h-done <id>` — marcar una tarea como hecha.
+
+**Cómo la IA agrupa:** cuando usás `/a`, la extensión despacha al agente con un
+prompt que le pide (1) leer el contexto con la tool `agenda(action=contexto_get)`,
+(2) decidir un grupo y (3) guardarla con `agenda(add, when, text, grupo)`.
+
+### `/qa` — QA de KOBRA Learning v1
+
 
 El comando `/qa`:
 
