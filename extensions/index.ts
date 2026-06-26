@@ -93,8 +93,8 @@ function parseSimpleYaml(text: string): QaState {
  */
 function patchStateYaml(original: string, opts: {
   modo: string;
-  lista?: string[];      // si se pasa, escribe `lista: [...]`
-  markCasePending?: string; // si se pasa, pone ese caso en status=pending
+  lista?: string[];
+  markCasePending?: string;
 }): string {
   const lines = original.split("\n");
 
@@ -127,7 +127,7 @@ function patchStateYaml(original: string, opts: {
       if (head && head[2] === cid) {
         for (let j = i + 1; j < lines.length; j++) {
           const sib = lines[j].match(/^(  )([A-Za-z0-9_]+):\s*$/);
-          if (sib) break; // otro caso top-level, salir
+          if (sib) break;
           const sm = lines[j].match(/^(    )status:\s*(\w+).*$/);
           if (sm) {
             lines[j] = `    status: pending`;
@@ -143,6 +143,8 @@ function patchStateYaml(original: string, opts: {
 
   return lines.join("\n");
 }
+
+type Accion = { tipo: "modo"; valor: string } | { tipo: "caso"; valor: string };
 
 export default function misConfiguraciones(pi: ExtensionAPI) {
   pi.registerCommand("qa", {
@@ -169,8 +171,12 @@ export default function misConfiguraciones(pi: ExtensionAPI) {
       const casos = state.casos ?? {};
       const pendientes = CASE_IDS.filter((id) => casos[id]?.status === "pending");
 
+      // Opciones del selector. Importante: cada opción empuja una entrada en
+      // `acciones` (incluso los separadores como `null`) para que el índice de la
+      // opción elegida coincida con el de su acción. Sin esto, el separador
+      // "--- Casos individuales ---" desplazaría todos los casos en uno.
       const options: string[] = [];
-      const acciones: Array<{ tipo: "modo"; valor: string } | { tipo: "caso"; valor: string }> = [];
+      const acciones: Array<Accion | null> = [];
 
       if (pendientes.length > 0) {
         options.push(`▶ Correr pendientes (${pendientes.length}: ${pendientes.join(", ")})`);
@@ -182,6 +188,7 @@ export default function misConfiguraciones(pi: ExtensionAPI) {
       options.push(`↻ Re-correr TODO (forzar, ${CASE_IDS.length} casos)`);
       acciones.push({ tipo: "modo", valor: "todos" });
       options.push("--- Casos individuales ---");
+      acciones.push(null); // separador: reserva el índice para que los casos cuadren
       for (const id of CASE_IDS) {
         const c = casos[id];
         const tag = c?.status === "pass" ? "✓" : c?.status === "pending" ? "○" : "•";
@@ -196,6 +203,11 @@ export default function misConfiguraciones(pi: ExtensionAPI) {
       const idx = options.indexOf(elegido);
       if (idx < 0 || idx >= acciones.length) return;
       const accion = acciones[idx];
+      if (!accion) {
+        // el usuario eligió el separador (no es accionable)
+        ctx.ui.notify("Esa línea es un separador, no un caso. Volvé a abrir /qa.", "info");
+        return;
+      }
 
       // Reescribir qa-state.yml con el selector elegido.
       // Política: si elegiste un caso puntual, se marca pending automáticamente
