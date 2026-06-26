@@ -226,8 +226,8 @@ export default function agendaExtension(pi: ExtensionAPI) {
     label: "Agenda",
     description:
       "Agenda personal de tareas por día. Actions: " +
-      "list(when|hoy|mañana|semana|all) · add(when,text,grupo) · toggle(id) · " +
-      "contexto_get · contexto_set(texto). `when` es YYYY-MM-DD o 'hoy'/'mañana'.",
+      "list(when|hoy|mañana|semana|all) · add(when,text,grupo) · update(id,when?,text?,grupo?) · " +
+      "toggle(id) · contexto_get · contexto_set(texto). `when` es YYYY-MM-DD o 'hoy'/'mañana'.",
     promptGuidelines: [
       "Usa la tool agenda cuando el usuario agregue o consulte tareas (/a, /h-*). " +
         "Para /a: primero lee el contexto con agenda(contexto_get), decidí un 'grupo' " +
@@ -237,6 +237,7 @@ export default function agendaExtension(pi: ExtensionAPI) {
       action: Type.Union([
         Type.Literal("list"),
         Type.Literal("add"),
+        Type.Literal("update"),
         Type.Literal("toggle"),
         Type.Literal("contexto_get"),
         Type.Literal("contexto_set"),
@@ -289,6 +290,32 @@ export default function agendaExtension(pi: ExtensionAPI) {
           t.done = !t.done;
           saveData(data);
           return { content: [{ type: "text", text: `#${t.id} ${t.done ? "hecha ✓" : "reabierta"}: ${t.text}` }], details: { id: t.id } };
+        }
+        case "update": {
+          if (params.id === undefined) return errOk("falta 'id'");
+          const t = data.tareas.find((x) => x.id === params.id);
+          if (!t) return errOk(`no existe #${params.id}`);
+          const cambios: string[] = [];
+          if (params.when !== undefined && params.when.trim()) {
+            const when = params.when.trim();
+            const iso = when === "hoy" ? toISO(hoy) :
+              (when === "mañana" || when === "manana") ? toISO(new Date(hoy.getTime() + 86400000)) :
+              parseISO(when) ? when : null;
+            if (!iso) return errOk(`when inválido: ${when}`);
+            t.when = iso;
+            cambios.push(`when=${iso}`);
+          }
+          if (params.text !== undefined && params.text.trim()) {
+            t.text = params.text.trim();
+            cambios.push(`text actualizado`);
+          }
+          if (params.grupo !== undefined && params.grupo.trim()) {
+            t.grupo = params.grupo.trim();
+            cambios.push(`grupo=${t.grupo}`);
+          }
+          if (cambios.length === 0) return errOk("no especficiaste qué cambiar (when/text/grupo)");
+          saveData(data);
+          return { content: [{ type: "text", text: `✓ #${t.id} actualizada: ${cambios.join(", ")}\n   ahora: [${t.when}] ${t.grupo} — ${t.text}` }], details: { id: t.id } };
         }
         case "contexto_get":
           return { content: [{ type: "text", text: data.contexto }], details: {} };
@@ -384,6 +411,65 @@ export default function agendaExtension(pi: ExtensionAPI) {
   pi.registerCommand("h-lista", {
     description: "Todas las pendientes (agrupadas)",
     handler: listar("Todas las pendientes", null, false, true),
+  });
+
+  // ---------- /a-list ----------
+  // Selector interactivo de tareas pendientes. Al elegir una, abre un input
+  // pre-llenado con su info para que el usuario le diga a la IA qué cambiar,
+  // y despacha el pedido de modificación con todo el contexto pegado.
+  pi.registerCommand("a-list", {
+    description: "Seleccionar una tarea pendiente para editarla",
+    handler: async (_args, ctx) => {
+      const data = loadData();
+      const pendientes = data.tareas.filter((t) => !t.done).sort((a, b) => {
+        // ordenar por fecha ascendente
+        if (a.when !== b.when) return a.when < b.when ? -1 : 1;
+        return a.id - b.id;
+      });
+      if (pendientes.length === 0) {
+        ctx.ui.notify("No hay tareas pendientes. Agregá una con /a <texto>", "info");
+        return;
+      }
+      // opciones del selector: una línea por tarea, con id/fecha/grupo/texto
+      const options = pendientes.map((t) => {
+        const fecha = prettyFecha(t.when);
+        const head = `#${t.id} · ${fecha} · ${t.grupo}`;
+        const txt = t.text.length > 50 ? t.text.slice(0, 47) + "…" : t.text;
+        return `${head}\n    ${txt}`;
+      });
+      const elegido = await ctx.ui.select("¿Qué tarea querés cambiar?", options);
+      if (!elegido) return;
+      const idx = options.indexOf(elegido);
+      if (idx < 0 || idx >= pendientes.length) return;
+      const t = pendientes[idx];
+
+      // input pre-llenado con un pedido de cambio" natural" para la IA
+      const prefilled = `Cambiar la tarea #${t.id} (${prettyFecha(t.when)} · ${t.grupo}): ${t.text}`;
+      const instruccion = await ctx.ui.input(
+        `¿Qué querés cambiar de la tarea #${t.id}? (ej: "pasar al viernes", "cambiar el texto a ...", "marcar como hecho")`,
+        prefilled,
+      );
+      if (!instruccion || !instruccion.trim()) {
+        ctx.ui.notify("Cancelado (sin cambios).", "info");
+        return;
+      }
+
+      // despachar al agente con el contexto completo: la tarea + lo que pidió el
+      // usuario. La IA decide qué tools de `agenda` usar (toggle si pidió marcar
+      // hecha, o add si pidió mover/cambiar texto... el modelo interpreta).
+      const prompt =
+        `El usuario quiere modificar una tarea de la agenda. Tarea actual (leída de ~/.pi/agent/agenda.json):
+` +
+        `- id: ${t.id}\n- when: ${t.when} (${prettyFecha(t.when)})\n- grupo: ${t.grupo}\n- text: "${t.text}"\n- done: ${t.done}\n\n` +
+        `Pedido del usuario: "${instruccion}".\n\n` +
+        `Usá la tool \`agenda\` para aplicar el cambio. Interpretá el pedido de forma natural:\n` +
+        `- Si pide mover de fecha ("al viernes", "para pasado", "para YYYY-MM-DD") → agenda(action=update, id=${t.id}, when=<nueva fecha YYYY-MM-DD>). Convertí días de la semana o 'hoy'/'mañana'/'pasado' a la fecha concreta YYYY-MM-DD.\n` +
+        `- Si pide marcar como hecho → agenda(action=toggle, id=${t.id}).\n` +
+        `- Si pide cambiar el texto o el grupo → agenda(action=update, id=${t.id}, text=<nuevo texto>, grupo=<nuevo grupo>). Actualizá solo lo que pidió.\n` +
+        `Después de aplicar, confirmame en una línea qué quedó. No hagas nada más.`;
+      ctx.ui.notify(`Editando #${t.id} → despachando al agente…`, "info");
+      pi.sendUserMessage(prompt);
+    },
   });
 
   // ---------- /h-contexto ----------
