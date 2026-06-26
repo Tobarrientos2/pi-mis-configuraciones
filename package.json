@@ -1,6 +1,6 @@
 {
   "name": "pi-mis-configuraciones",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Comandos personales de pi: /qa (QA con selector) + /a, /h-hoy, /h-mañana, /h-semana (agenda con agrupacion IA).",
   "keywords": ["pi-package"],
   "license": "MIT",
@@ -10,7 +10,7 @@
     "url": "https://github.com/tobarrientos2/pi-mis-configuraciones.git"
   },
   "pi": {
-    "extensions": ["./extensions"]
+    "extensions": ["./extensions/index.ts", "./extensions/agenda.ts"]
   },
   "peerDependencies": {
     "@mariozechner/pi-coding-agent": "*",
