@@ -1,0 +1,19 @@
+{
+  "name": "pi-mis-configuraciones",
+  "version": "0.1.0",
+  "description": "Comando /qa para pi: arranca QA de KOBRA Learning v1 con selector interactivo de casos.",
+  "keywords": ["pi-package"],
+  "license": "MIT",
+  "author": "tobarrientos2",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tobarrientos2/pi-mis-configuraciones.git"
+  },
+  "pi": {
+    "extensions": ["./extensions"]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "typebox": "*"
+  }
+}
